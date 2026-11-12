@@ -1,6 +1,6 @@
 name: bot-live
 
-# Ручной запуск бота в режиме polling на ~15 минут.
+# Ручной запуск бота в режиме polling на ~3 часа.
 # Нужен, чтобы на защите показать команды /start и /status, которые
 # не работают в режиме cron (run_once.py делает один цикл и выходит).
 on:
@@ -16,7 +16,7 @@ permissions:
 jobs:
   polling:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 190
 
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -52,5 +52,5 @@ jobs:
             exit 1
           fi
 
-      - name: Бот с polling (14 минут)
-        run: timeout 840 python main.py || true
+      - name: Бот с polling (3 часа)
+        run: timeout 10800 python main.py || true
