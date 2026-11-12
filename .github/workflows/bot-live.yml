@@ -1,0 +1,56 @@
+name: bot-live
+
+# Ручной запуск бота в режиме polling на ~15 минут.
+# Нужен, чтобы на защите показать команды /start и /status, которые
+# не работают в режиме cron (run_once.py делает один цикл и выходит).
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: bot-live
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  polling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      CRYPTOPANIC_API_KEY: ${{ secrets.CRYPTOPANIC_API_KEY }}
+      COLLECT_INTERVAL_SECONDS: "300"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Установка зависимостей
+        run: pip install -r requirements.txt
+
+      - name: Восстановление базы из ветки state
+        run: |
+          if git fetch --depth=1 origin +refs/heads/state:refs/remotes/origin/state; then
+            git show origin/state:futures_bot.db > futures_bot.db || rm -f futures_bot.db
+            git show origin/state:top10_cache.json > top10_cache.json || rm -f top10_cache.json
+            echo "Состояние восстановлено"
+          else
+            echo "Ветки state ещё нет, стартуем с чистой базы"
+          fi
+
+      - name: Проверка токена
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+            echo "::error::Не задан secret TELEGRAM_BOT_TOKEN (Settings -> Secrets and variables -> Actions)"
+            exit 1
+          fi
+
+      - name: Бот с polling (14 минут)
+        run: timeout 840 python main.py || true

@@ -7,23 +7,16 @@ import logging
 
 import requests
 
-import alert_engine
 import config
 import db
-import markets
-from collectors import (
-    cryptopanic_collector,
-    feargreed_collector,
-    market_collector,
-    reddit_collector,
-    rss_collector,
-)
+import service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("futures-bot.run_once")
 
 
 def send_telegram(text: str) -> bool:
+    """Транспорт: отправляет готовый текст алерта в Telegram."""
     if not (config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID):
         logger.warning("Не заданы TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID, алерт не отправлен:\n%s", text)
         return False
@@ -49,31 +42,28 @@ def send_telegram(text: str) -> bool:
     return True
 
 
+def notify(text: str) -> None:
+    """Функция-нотификатор, которую сервисный слой получает извне."""
+    ok = send_telegram(text)
+    logger.info("Алерт %s: %s", "отправлен" if ok else "НЕ отправлен", text.splitlines()[0])
+
+
 def main():
     db.init_db()
 
-    logger.info("Доступность бирж с этого IP: %s", market_collector.probe())
+    logger.info("Доступность бирж с этого IP: %s", service.probe_exchanges())
 
-    aliases = markets.get_top10_aliases(fallback=config.COIN_ALIASES)
-    tracked = set(aliases.keys())
-
-    market_n = market_collector.collect(tracked)
-    rss_n = rss_collector.collect(aliases)
-    cp_n = cryptopanic_collector.collect(tracked)
-    reddit_n = reddit_collector.collect(aliases)
-    feargreed_collector.fetch()
+    result = service.run_cycle(notifier=notify)
 
     logger.info(
         "Собрано сигналов: market=%d rss=%d cryptopanic=%d reddit=%d",
-        market_n, rss_n, cp_n, reddit_n,
+        result.counts.get("market", 0),
+        result.counts.get("rss", 0),
+        result.counts.get("cryptopanic", 0),
+        result.counts.get("reddit", 0),
     )
 
-    alerts = alert_engine.check_alerts(sorted(tracked))
-    for text in alerts:
-        ok = send_telegram(text)
-        logger.info("Алерт %s: %s", "отправлен" if ok else "НЕ отправлен", text.splitlines()[0])
-
-    if not alerts:
+    if not result.alerts:
         logger.info("Алертов нет (нужно совпадение минимум 2 категорий сигналов).")
 
     db.prune_old()
